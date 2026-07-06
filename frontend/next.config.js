@@ -1,6 +1,5 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  output: 'standalone', // small, self-contained build for the Docker image
   reactStrictMode: true,
   async headers() {
     return [
