@@ -1,0 +1,223 @@
+{
+  "info": {
+    "name": "SentryGrid SIEM API",
+    "description": "Auth, log ingestion, alerts, AI triage, dashboard, and audit endpoints for the SentryGrid backend.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:4000" },
+    { "key": "accessToken", "value": "" },
+    { "key": "refreshToken", "value": "" },
+    { "key": "alertId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Register (creates org + admin user)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/auth/register",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"founder@example.com\",\n  \"password\": \"Password123!\",\n  \"name\": \"Founding Admin\",\n  \"organizationName\": \"Example Org\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const data = pm.response.json();",
+                  "if (data.accessToken) { pm.collectionVariables.set('accessToken', data.accessToken); }",
+                  "if (data.refreshToken) { pm.collectionVariables.set('refreshToken', data.refreshToken); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@sentrygrid.io\",\n  \"password\": \"Password123!\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const data = pm.response.json();",
+                  "if (data.accessToken) { pm.collectionVariables.set('accessToken', data.accessToken); }",
+                  "if (data.refreshToken) { pm.collectionVariables.set('refreshToken', data.refreshToken); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Refresh access token",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/auth/refresh",
+            "body": { "mode": "raw", "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}" }
+          }
+        },
+        {
+          "name": "Get current user",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": "{{baseUrl}}/api/auth/me"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Logs",
+      "item": [
+        {
+          "name": "Ingest a single event",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": "{{baseUrl}}/api/logs/ingest",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"source\": \"auth-service\",\n  \"eventType\": \"AUTH_FAILURE\",\n  \"sourceIp\": \"198.51.100.20\",\n  \"username\": \"admin\",\n  \"host\": \"web-01\",\n  \"rawMessage\": \"Failed login for admin from 198.51.100.20\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Ingest a batch (triggers brute-force rule)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": "{{baseUrl}}/api/logs/ingest",
+            "body": {
+              "mode": "raw",
+              "raw": "[\n  { \"source\": \"auth-service\", \"eventType\": \"AUTH_FAILURE\", \"sourceIp\": \"198.51.100.99\", \"username\": \"admin\", \"host\": \"web-01\", \"rawMessage\": \"Failed login attempt 1\" },\n  { \"source\": \"auth-service\", \"eventType\": \"AUTH_FAILURE\", \"sourceIp\": \"198.51.100.99\", \"username\": \"admin\", \"host\": \"web-01\", \"rawMessage\": \"Failed login attempt 2\" },\n  { \"source\": \"auth-service\", \"eventType\": \"AUTH_FAILURE\", \"sourceIp\": \"198.51.100.99\", \"username\": \"admin\", \"host\": \"web-01\", \"rawMessage\": \"Failed login attempt 3\" },\n  { \"source\": \"auth-service\", \"eventType\": \"AUTH_FAILURE\", \"sourceIp\": \"198.51.100.99\", \"username\": \"admin\", \"host\": \"web-01\", \"rawMessage\": \"Failed login attempt 4\" },\n  { \"source\": \"auth-service\", \"eventType\": \"AUTH_FAILURE\", \"sourceIp\": \"198.51.100.99\", \"username\": \"admin\", \"host\": \"web-01\", \"rawMessage\": \"Failed login attempt 5\" }\n]"
+            }
+          }
+        },
+        {
+          "name": "List events",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/logs?page=1&pageSize=25", "host": ["{{baseUrl}}"], "path": ["api", "logs"], "query": [{ "key": "page", "value": "1" }, { "key": "pageSize", "value": "25" }] }
+          }
+        },
+        {
+          "name": "Event type summary",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": "{{baseUrl}}/api/logs/summary"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Alerts",
+      "item": [
+        {
+          "name": "List alerts",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/alerts?status=OPEN", "host": ["{{baseUrl}}"], "path": ["api", "alerts"], "query": [{ "key": "status", "value": "OPEN" }] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const data = pm.response.json();",
+                  "if (data.items && data.items[0]) { pm.collectionVariables.set('alertId', data.items[0].id); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get alert detail",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": "{{baseUrl}}/api/alerts/{{alertId}}"
+          }
+        },
+        {
+          "name": "Run AI triage",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": "{{baseUrl}}/api/alerts/{{alertId}}/triage"
+          }
+        },
+        {
+          "name": "Update alert status",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": "{{baseUrl}}/api/alerts/{{alertId}}/status",
+            "body": { "mode": "raw", "raw": "{\n  \"status\": \"ACKNOWLEDGED\"\n}" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Dashboard",
+      "item": [
+        {
+          "name": "Overview (KPIs + charts)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": "{{baseUrl}}/api/dashboard/overview"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Audit",
+      "item": [
+        {
+          "name": "List audit log (admin only)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": "{{baseUrl}}/api/audit?pageSize=25"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Health check",
+          "request": { "method": "GET", "url": "{{baseUrl}}/health" }
+        }
+      ]
+    }
+  ]
+}

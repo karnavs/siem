@@ -1,0 +1,60 @@
+version: '3.9'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: sentrygrid
+      POSTGRES_PASSWORD: sentrygrid
+      POSTGRES_DB: sentrygrid
+    ports:
+      - '5432:5432'
+    volumes:
+      - sentrygrid_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U sentrygrid']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: development
+      PORT: 4000
+      DATABASE_URL: postgresql://sentrygrid:sentrygrid@postgres:5432/sentrygrid
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-dev-access-secret-change-me}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-dev-refresh-secret-change-me}
+      CORS_ORIGIN: http://localhost:3000
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      AI_MODEL: ${AI_MODEL:-gpt-4o-mini}
+      AWS_REGION: ${AWS_REGION:-ap-south-1}
+      SNS_ALERT_TOPIC_ARN: ${SNS_ALERT_TOPIC_ARN:-}
+    ports:
+      - '4000:4000'
+    # Local/demo flow: db push syncs the schema directly (no pre-generated
+    # migration files needed). See infra/README.md for the migrate-based
+    # flow used in production.
+    command: sh -c "npx prisma db push --skip-generate --accept-data-loss && (node dist/scripts/seed.js || true) && node dist/index.js"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:4000
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - '3000:3000'
+
+volumes:
+  sentrygrid_pgdata:

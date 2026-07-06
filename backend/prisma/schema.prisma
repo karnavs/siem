@@ -1,0 +1,134 @@
+// SentryGrid data model
+// Org is included now (single-tenant in practice) so multi-tenancy is a
+// migration, not a rewrite, if this becomes a real product.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  ANALYST
+  VIEWER
+}
+
+enum Severity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum AlertStatus {
+  OPEN
+  ACKNOWLEDGED
+  RESOLVED
+  FALSE_POSITIVE
+}
+
+model Organization {
+  id        String   @id @default(uuid())
+  name      String
+  createdAt DateTime @default(now())
+
+  users  User[]
+  events SecurityEvent[]
+  alerts Alert[]
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  role         Role     @default(VIEWER)
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  organizationId String
+  createdAt    DateTime @default(now())
+  lastLoginAt  DateTime?
+
+  auditLogs       AuditLog[]
+  acknowledgedAlerts Alert[] @relation("AlertAcknowledgedBy")
+}
+
+// Raw ingested security events — the "log" stream agents/integrations push in
+model SecurityEvent {
+  id             String   @id @default(uuid())
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  organizationId String
+  source         String   // e.g. "auth-service", "vpn-gateway", "endpoint-agent"
+  eventType      String   // e.g. "AUTH_FAILURE", "PORT_SCAN", "FILE_INTEGRITY"
+  sourceIp       String?
+  username       String?
+  host           String?
+  rawMessage     String
+  metadata       Json?
+  occurredAt     DateTime @default(now())
+  createdAt      DateTime @default(now())
+
+  alerts AlertEvent[]
+
+  @@index([organizationId, occurredAt])
+  @@index([eventType])
+  @@index([sourceIp])
+}
+
+// Correlated alert produced by the detection engine, optionally enriched by AI
+model Alert {
+  id               String      @id @default(uuid())
+  organization     Organization @relation(fields: [organizationId], references: [id])
+  organizationId   String
+  title            String
+  description      String
+  severity         Severity
+  status           AlertStatus @default(OPEN)
+  ruleId           String      // which detection rule fired
+  mitreTacticId    String?     // e.g. TA0006
+  mitreTacticName  String?
+  mitreTechniqueId String?     // e.g. T1110
+  mitreTechniqueName String?
+  aiSummary        String?
+  aiRecommendation String?
+  aiConfidence     Float?
+  acknowledgedBy   User?       @relation("AlertAcknowledgedBy", fields: [acknowledgedById], references: [id])
+  acknowledgedById String?
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  events AlertEvent[]
+
+  @@index([organizationId, createdAt])
+  @@index([severity])
+  @@index([status])
+}
+
+// Join table: which raw events make up an alert
+model AlertEvent {
+  id      String @id @default(uuid())
+  alert   Alert  @relation(fields: [alertId], references: [id], onDelete: Cascade)
+  alertId String
+  event   SecurityEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  eventId String
+
+  @@unique([alertId, eventId])
+}
+
+// Audit trail of user actions — separate from the security event stream
+model AuditLog {
+  id        String   @id @default(uuid())
+  user      User?    @relation(fields: [userId], references: [id])
+  userId    String?
+  action    String   // e.g. "LOGIN", "ALERT_ACK", "USER_ROLE_CHANGE"
+  resource  String?  // e.g. "Alert:uuid"
+  ipAddress String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([action])
+}
