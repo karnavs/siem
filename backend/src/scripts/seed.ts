@@ -1,4 +1,5 @@
 import bcrypt from 'bcryptjs';
+import { eq } from 'drizzle-orm';
 import { db } from '../db';
 import { organizations, users, securityEvents, alerts, alertEvents, auditLogs } from '../db/schema';
 import { runDetectionEngine } from '../services/detectionEngine';
