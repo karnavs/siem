@@ -1,4 +1,4 @@
-import { Alert, SecurityEvent } from '@prisma/client';
+import { Alert, SecurityEvent } from '../src/db/schema';
 import { triageAlert } from '../src/services/aiTriage';
 
 function makeAlert(overrides: Partial<Alert>): Alert {

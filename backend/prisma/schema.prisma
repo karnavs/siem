@@ -37,9 +37,10 @@ model Organization {
   name      String
   createdAt DateTime @default(now())
 
-  users  User[]
-  events SecurityEvent[]
-  alerts Alert[]
+  users     User[]
+  events    SecurityEvent[]
+  alerts    Alert[]
+  auditLogs AuditLog[]
 }
 
 model User {
@@ -121,15 +122,18 @@ model AlertEvent {
 
 // Audit trail of user actions — separate from the security event stream
 model AuditLog {
-  id        String   @id @default(uuid())
-  user      User?    @relation(fields: [userId], references: [id])
-  userId    String?
-  action    String   // e.g. "LOGIN", "ALERT_ACK", "USER_ROLE_CHANGE"
-  resource  String?  // e.g. "Alert:uuid"
-  ipAddress String?
-  metadata  Json?
-  createdAt DateTime @default(now())
+  id             String       @id @default(uuid())
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  organizationId String
+  user           User?        @relation(fields: [userId], references: [id])
+  userId         String?
+  action         String   // e.g. "LOGIN", "ALERT_ACK", "USER_ROLE_CHANGE"
+  resource       String?  // e.g. "Alert:uuid"
+  ipAddress      String?
+  metadata       Json?
+  createdAt      DateTime @default(now())
 
+  @@index([organizationId, createdAt])
   @@index([userId, createdAt])
   @@index([action])
 }

@@ -1,5 +1,5 @@
-import { Severity, SecurityEvent } from '@prisma/client';
-import { prisma } from '../config/prisma';
+import { db } from '../db';
+import { alerts, alertEvents, SecurityEvent, Severity } from '../db/schema';
 import { MITRE_TECHNIQUES, MitreTechnique } from '../data/mitreAttack';
 import { logger } from '../utils/logger';
 
@@ -243,22 +243,29 @@ export async function runDetectionEngine(
   let created = 0;
 
   for (const candidate of candidates) {
-    await prisma.alert.create({
-      data: {
-        organizationId,
-        title: candidate.title,
-        description: candidate.description,
-        severity: candidate.severity,
-        ruleId: candidate.ruleId,
-        mitreTacticId: candidate.mitre.tacticId,
-        mitreTacticName: candidate.mitre.tacticName,
-        mitreTechniqueId: candidate.mitre.techniqueId,
-        mitreTechniqueName: candidate.mitre.techniqueName,
-        events: {
-          create: candidate.eventIds.map((eventId) => ({ eventId })),
-        },
-      },
+    const alertId = crypto.randomUUID();
+    await db.insert(alerts).values({
+      id:                 alertId,
+      organizationId,
+      title:              candidate.title,
+      description:        candidate.description,
+      severity:           candidate.severity,
+      ruleId:             candidate.ruleId,
+      mitreTacticId:      candidate.mitre.tacticId,
+      mitreTacticName:    candidate.mitre.tacticName,
+      mitreTechniqueId:   candidate.mitre.techniqueId,
+      mitreTechniqueName: candidate.mitre.techniqueName,
     });
+
+    if (candidate.eventIds.length > 0) {
+      await db.insert(alertEvents).values(
+        candidate.eventIds.map((eventId) => ({
+          id: crypto.randomUUID(),
+          alertId,
+          eventId,
+        })),
+      );
+    }
     created += 1;
   }
 

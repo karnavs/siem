@@ -1,5 +1,6 @@
 import bcrypt from 'bcryptjs';
-import { prisma } from '../config/prisma';
+import { db } from '../db';
+import { organizations, users, securityEvents, alerts, alertEvents, auditLogs } from '../db/schema';
 import { runDetectionEngine } from '../services/detectionEngine';
 import { logger } from '../utils/logger';
 
@@ -33,30 +34,32 @@ async function main() {
   logger.info('Seeding SentryGrid demo data...');
 
   // Wipe existing demo data for idempotent re-seeds in dev.
-  await prisma.auditLog.deleteMany();
-  await prisma.alertEvent.deleteMany();
-  await prisma.alert.deleteMany();
-  await prisma.securityEvent.deleteMany();
-  await prisma.user.deleteMany();
-  await prisma.organization.deleteMany();
+  await db.delete(auditLogs);
+  await db.delete(alertEvents);
+  await db.delete(alerts);
+  await db.delete(securityEvents);
+  await db.delete(users);
+  await db.delete(organizations);
 
-  const org = await prisma.organization.create({ data: { name: 'SentryGrid Demo Corp' } });
+  const [org] = await db.insert(organizations).values({
+    id: crypto.randomUUID(),
+    name: 'SentryGrid Demo Corp',
+  }).returning();
 
   const passwordHash = await bcrypt.hash(DEMO_PASSWORD, 12);
 
-  await prisma.user.createMany({
-    data: [
-      { email: 'admin@sentrygrid.io', name: 'Avery Admin', role: 'ADMIN', passwordHash, organizationId: org.id },
-      { email: 'analyst@sentrygrid.io', name: 'Sam Analyst', role: 'ANALYST', passwordHash, organizationId: org.id },
-      { email: 'viewer@sentrygrid.io', name: 'Val Viewer', role: 'VIEWER', passwordHash, organizationId: org.id },
-    ],
-  });
+  await db.insert(users).values([
+    { id: crypto.randomUUID(), email: 'admin@sentrygrid.io', name: 'Avery Admin', role: 'ADMIN', passwordHash, organizationId: org.id },
+    { id: crypto.randomUUID(), email: 'analyst@sentrygrid.io', name: 'Sam Analyst', role: 'ANALYST', passwordHash, organizationId: org.id },
+    { id: crypto.randomUUID(), email: 'viewer@sentrygrid.io', name: 'Val Viewer', role: 'VIEWER', passwordHash, organizationId: org.id },
+  ]);
 
   // --- Background noise: a few hundred mostly-benign events ---------------
   const events = [];
   for (let i = 0; i < 350; i++) {
     const eventType = randomFrom(EVENT_TYPES.filter((t) => !['LOG_CLEARED'].includes(t)));
     events.push({
+      id: crypto.randomUUID(),
       organizationId: org.id,
       source: randomFrom(['auth-service', 'endpoint-agent', 'vpn-gateway', 'firewall']),
       eventType,
@@ -72,6 +75,7 @@ async function main() {
   const attackerIp = SUSPICIOUS_IPS[0];
   for (let i = 0; i < 8; i++) {
     events.push({
+      id: crypto.randomUUID(),
       organizationId: org.id,
       source: 'auth-service',
       eventType: 'AUTH_FAILURE',
@@ -84,6 +88,7 @@ async function main() {
   }
   for (const user of USERNAMES.slice(0, 5)) {
     events.push({
+      id: crypto.randomUUID(),
       organizationId: org.id,
       source: 'auth-service',
       eventType: 'AUTH_FAILURE',
@@ -98,6 +103,7 @@ async function main() {
   // --- Planted attack scenario 2: recon + lateral movement -----------------
   for (let i = 0; i < 4; i++) {
     events.push({
+      id: crypto.randomUUID(),
       organizationId: org.id,
       source: 'firewall',
       eventType: 'PORT_SCAN',
@@ -109,6 +115,7 @@ async function main() {
   }
   for (const host of ['web-01', 'web-02', 'db-primary']) {
     events.push({
+      id: crypto.randomUUID(),
       organizationId: org.id,
       source: 'endpoint-agent',
       eventType: 'AUTH_SUCCESS',
@@ -122,6 +129,7 @@ async function main() {
 
   // --- Planted attack scenario 3: critical incidents ------------------------
   events.push({
+    id: crypto.randomUUID(),
     organizationId: org.id,
     source: 'endpoint-agent',
     eventType: 'LARGE_DATA_TRANSFER',
@@ -132,6 +140,7 @@ async function main() {
     occurredAt: randomRecentDate(1),
   });
   events.push({
+    id: crypto.randomUUID(),
     organizationId: org.id,
     source: 'endpoint-agent',
     eventType: 'LOG_CLEARED',
@@ -140,6 +149,7 @@ async function main() {
     occurredAt: randomRecentDate(1),
   });
   events.push({
+    id: crypto.randomUUID(),
     organizationId: org.id,
     source: 'endpoint-agent',
     eventType: 'SUSPICIOUS_PROCESS',
@@ -149,6 +159,7 @@ async function main() {
     occurredAt: randomRecentDate(1),
   });
   events.push({
+    id: crypto.randomUUID(),
     organizationId: org.id,
     source: 'iam-service',
     eventType: 'ROLE_CHANGE',
@@ -158,10 +169,10 @@ async function main() {
     occurredAt: randomRecentDate(1),
   });
 
-  await prisma.securityEvent.createMany({ data: events });
+  await db.insert(securityEvents).values(events);
   logger.info(`Inserted ${events.length} synthetic security events`);
 
-  const allEvents = await prisma.securityEvent.findMany({ where: { organizationId: org.id } });
+  const allEvents = await db.select().from(securityEvents).where(eq(securityEvents.organizationId, org.id));
   const alertsCreated = await runDetectionEngine(org.id, allEvents);
   logger.info(`Detection engine generated ${alertsCreated} alerts from seed data`);
 
@@ -179,7 +190,4 @@ main()
   .catch((err) => {
     logger.error('Seed failed', { error: (err as Error).message });
     process.exit(1);
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
   });

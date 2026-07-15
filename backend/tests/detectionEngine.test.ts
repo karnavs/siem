@@ -1,4 +1,4 @@
-import { SecurityEvent } from '@prisma/client';
+import { SecurityEvent } from '../src/db/schema';
 import { evaluateAllRules } from '../src/services/detectionEngine';
 
 let idCounter = 0;

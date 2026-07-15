@@ -1,6 +1,6 @@
 import { env } from '../config/env';
 import { logger } from '../utils/logger';
-import { Alert } from '@prisma/client';
+import { Alert } from '../db/schema';
 
 /**
  * Publishes a notification to the configured SNS topic when a CRITICAL alert

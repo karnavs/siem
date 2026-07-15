@@ -1,4 +1,4 @@
-import { Alert, SecurityEvent } from '@prisma/client';
+import { Alert, SecurityEvent } from '../db/schema';
 import { env, hasAiKey } from '../config/env';
 import { logger } from '../utils/logger';
 

@@ -1,20 +1,16 @@
 # --- Build stage ----------------------------------------------------------
 FROM node:20-alpine AS builder
-RUN apk add --no-cache openssl
 WORKDIR /app
 
 COPY package*.json ./
-COPY prisma ./prisma
 RUN npm ci
 
 COPY tsconfig.json ./
 COPY src ./src
-RUN npx prisma generate
 RUN npm run build
 
 # --- Runtime stage ----------------------------------------------------------
 FROM node:20-alpine AS runner
-RUN apk add --no-cache openssl
 WORKDIR /app
 ENV NODE_ENV=production
 
@@ -22,8 +18,7 @@ ENV NODE_ENV=production
 RUN addgroup -g 1001 -S nodejs && adduser -S sentrygrid -u 1001
 
 COPY package*.json ./
-COPY prisma ./prisma
-RUN npm ci --omit=dev && npx prisma generate
+RUN npm ci --omit=dev
 
 COPY --from=builder /app/dist ./dist
 

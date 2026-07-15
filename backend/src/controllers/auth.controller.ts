@@ -1,8 +1,9 @@
 import { Request, Response, NextFunction } from 'express';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
-import { Prisma } from '@prisma/client';
-import { prisma } from '../config/prisma';
+import { eq } from 'drizzle-orm';
+import { db } from '../db';
+import { users, organizations } from '../db/schema';
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from '../utils/jwt';
 import { recordAudit } from '../services/auditService';
 import { ApiError } from '../middleware/errorHandler';
@@ -25,32 +26,44 @@ export async function register(req: Request, res: Response, next: NextFunction) 
   try {
     const body = registerSchema.parse(req.body);
 
-    const existing = await prisma.user.findUnique({ where: { email: body.email } });
-    if (existing) throw new ApiError(409, 'An account with this email already exists');
+    const existing = await db.select().from(users).where(eq(users.email, body.email)).limit(1);
+    if (existing.length > 0) throw new ApiError(409, 'An account with this email already exists');
 
     const passwordHash = await bcrypt.hash(body.password, SALT_ROUNDS);
 
-    const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    const result = await db.transaction(async (tx) => {
       // First user in an org is provisioned as ADMIN.
-      const org = await tx.organization.create({ data: { name: body.organizationName } });
-      const user = await tx.user.create({
-        data: {
-          email: body.email,
+      const [org] = await tx
+        .insert(organizations)
+        .values({ id: crypto.randomUUID(), name: body.organizationName })
+        .returning();
+
+      const [user] = await tx
+        .insert(users)
+        .values({
+          id:             crypto.randomUUID(),
+          email:          body.email,
           passwordHash,
-          name: body.name,
-          role: 'ADMIN',
+          name:           body.name,
+          role:           'ADMIN',
           organizationId: org.id,
-        },
-      });
+        })
+        .returning();
+
       return user;
     });
 
-    await recordAudit({ userId: result.id, action: 'USER_REGISTERED', ipAddress: req.ip });
+    await recordAudit({
+      organizationId: result.organizationId,
+      userId:         result.id,
+      action:         'USER_REGISTERED',
+      ipAddress:      req.ip,
+    });
 
     const accessToken = signAccessToken({
-      sub: result.id,
-      email: result.email,
-      role: result.role,
+      sub:            result.id,
+      email:          result.email,
+      role:           result.role,
       organizationId: result.organizationId,
     });
     const refreshToken = signRefreshToken(result.id);
@@ -69,24 +82,35 @@ export async function login(req: Request, res: Response, next: NextFunction) {
   try {
     const body = loginSchema.parse(req.body);
 
-    const user = await prisma.user.findUnique({ where: { email: body.email } });
+    const [user] = await db.select().from(users).where(eq(users.email, body.email)).limit(1);
 
     // Constant-shape response on invalid email/password to avoid user enumeration.
     if (!user) throw new ApiError(401, 'Invalid email or password');
 
     const valid = await bcrypt.compare(body.password, user.passwordHash);
     if (!valid) {
-      await recordAudit({ action: 'LOGIN_FAILED', metadata: { email: body.email }, ipAddress: req.ip });
+      await recordAudit({
+        organizationId: user.organizationId,
+        action:         'LOGIN_FAILED',
+        metadata:       { email: body.email },
+        ipAddress:      req.ip,
+      });
       throw new ApiError(401, 'Invalid email or password');
     }
 
-    await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
-    await recordAudit({ userId: user.id, action: 'LOGIN_SUCCESS', ipAddress: req.ip });
+    await db.update(users).set({ lastLoginAt: new Date() }).where(eq(users.id, user.id));
+
+    await recordAudit({
+      organizationId: user.organizationId,
+      userId:         user.id,
+      action:         'LOGIN_SUCCESS',
+      ipAddress:      req.ip,
+    });
 
     const accessToken = signAccessToken({
-      sub: user.id,
-      email: user.email,
-      role: user.role,
+      sub:            user.id,
+      email:          user.email,
+      role:           user.role,
       organizationId: user.organizationId,
     });
     const refreshToken = signRefreshToken(user.id);
@@ -107,13 +131,13 @@ export async function refresh(req: Request, res: Response, next: NextFunction) {
     if (!refreshToken) throw new ApiError(400, 'refreshToken is required');
 
     const payload = verifyRefreshToken(refreshToken);
-    const user = await prisma.user.findUnique({ where: { id: payload.sub } });
+    const [user] = await db.select().from(users).where(eq(users.id, payload.sub)).limit(1);
     if (!user) throw new ApiError(401, 'User no longer exists');
 
     const accessToken = signAccessToken({
-      sub: user.id,
-      email: user.email,
-      role: user.role,
+      sub:            user.id,
+      email:          user.email,
+      role:           user.role,
       organizationId: user.organizationId,
     });
 
@@ -126,10 +150,19 @@ export async function refresh(req: Request, res: Response, next: NextFunction) {
 export async function me(req: Request, res: Response, next: NextFunction) {
   try {
     if (!req.user) throw new ApiError(401, 'Not authenticated');
-    const user = await prisma.user.findUnique({
-      where: { id: req.user.sub },
-      select: { id: true, email: true, name: true, role: true, organizationId: true, lastLoginAt: true },
-    });
+    const [user] = await db
+      .select({
+        id:             users.id,
+        email:          users.email,
+        name:           users.name,
+        role:           users.role,
+        organizationId: users.organizationId,
+        lastLoginAt:    users.lastLoginAt,
+      })
+      .from(users)
+      .where(eq(users.id, req.user.sub))
+      .limit(1);
+
     if (!user) throw new ApiError(404, 'User not found');
     return res.json({ user });
   } catch (err) {

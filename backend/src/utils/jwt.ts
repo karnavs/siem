@@ -1,6 +1,6 @@
 import jwt, { SignOptions } from 'jsonwebtoken';
 import { env } from '../config/env';
-import { Role } from '@prisma/client';
+import { Role } from '../db/schema';
 
 export interface AccessTokenPayload {
   sub: string; // user id
@@ -26,4 +26,3 @@ export function verifyAccessToken(token: string): AccessTokenPayload {
 export function verifyRefreshToken(token: string): { sub: string } {
   return jwt.verify(token, env.JWT_REFRESH_SECRET) as { sub: string };
 }
-
