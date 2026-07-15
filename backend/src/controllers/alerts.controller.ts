@@ -46,7 +46,7 @@ export async function list(req: Request, res: Response, next: NextFunction) {
 
     const items = rows.map(({ alert, acknowledgedBy }) => ({
       ...alert,
-      acknowledgedBy: acknowledgedBy.id ? acknowledgedBy : null,
+      acknowledgedBy: acknowledgedBy?.id ? acknowledgedBy : null,
     }));
 
     return res.json({ items, total, page: q.page, pageSize: q.pageSize });
@@ -83,7 +83,7 @@ export async function getById(req: Request, res: Response, next: NextFunction) {
 
     const alert = {
       ...row.alert,
-      acknowledgedBy: row.acknowledgedBy.id ? row.acknowledgedBy : null,
+      acknowledgedBy: row.acknowledgedBy?.id ? row.acknowledgedBy : null,
       events: eventRows.map(({ event }) => ({ event })),
     };
 
